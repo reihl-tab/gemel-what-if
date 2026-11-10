@@ -121,7 +121,7 @@ test("picker shows exactly the catalog languages, in catalog order, by their own
 // crawlers. Each baked text must equal the catalog's default value, and no UI text may be left untagged.
 const html = read("docs/index.html");
 const tagged = [];
-for (const m of html.matchAll(/<(\w+)([^>]*?)\sdata-i18n(-html)?="([^"]+)"([^>]*)>([\s\S]*?)<\/\1>/g)) tagged.push({ key: m[4], html: !!m[3], inner: m[6], whole: m[0] });
+for (const m of html.matchAll(/<(\w+)([^>]*?)\sdata-i18n(-html)?="([^"]+)"([^>]*)>([\s\S]*?)<\/\1>/g)) tagged.push({ key: m[4], html: !!m[3], inner: m[6], start: m.index, end: m.index + m[0].length });
 const attrTagged = [];
 for (const m of html.matchAll(/<\w+[^>]*>/g)) {
   for (const a of m[0].matchAll(/\sdata-i18n-(content|placeholder|aria-label)="([^"]+)"/g)) {
@@ -144,10 +144,23 @@ test("index.html: the baked text equals the catalog's default language, byte for
 });
 
 test("index.html: no user-visible text outside a catalog key", () => {
-  let rest = html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<style[\s\S]*?<\/style>/g, "");
-  for (const t of tagged) rest = rest.replace(t.whole, "");
-  rest = rest.replace(/<[^>]*>/g, (tag) => (/data-i18n-/.test(tag) ? "" : tag.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''")));
-  const left = rest.replace(/<[^>]*>/g, " ").split(/\s+/).filter((w) => HEBREW.test(w));
+  // Walks tags and text in order; script and style bodies are not page text.
+  const inTagged = (i) => tagged.some((t) => i >= t.start && i < t.end);
+  const left = [];
+  let skip = null;
+  for (const m of html.matchAll(/<(\/?)([a-zA-Z][\w-]*)([^>]*)>|([^<]+)/g)) {
+    if (m[4] !== undefined) {
+      if (!skip && !inTagged(m.index) && HEBREW.test(m[4])) left.push(m[4].trim());
+      continue;
+    }
+    const name = m[2].toLowerCase();
+    if (skip) { if (m[1] && name === skip) skip = null; continue; }
+    if (!m[1] && (name === "script" || name === "style")) { skip = name; continue; }
+    if (inTagged(m.index)) continue;
+    for (const a of m[3].matchAll(/([\w-]+)="([^"]*)"/g)) {
+      if (HEBREW.test(a[2]) && !m[3].includes("data-i18n-" + a[1] + "=")) left.push(name + " " + a[1] + "=" + a[2]);
+    }
+  }
   assert.deepStrictEqual(left, []);
 });
 
